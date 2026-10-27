@@ -62,11 +62,19 @@ export const requireUser = cache(async (): Promise<AppUser> => {
   return appUser;
 });
 
+// A customer_admin always belongs to a company (users_role_company_check).
+export type CustomerAdmin = AppUser & { role: "customer_admin"; companyId: string };
+
 // Like requireUser, but sends users with a different role to their own home.
+export async function requireRole(role: "customer_admin"): Promise<CustomerAdmin>;
+export async function requireRole(role: "parable_staff"): Promise<AppUser>;
 export async function requireRole(role: UserRole): Promise<AppUser> {
   const appUser = await requireUser();
   if (appUser.role !== role) {
     redirect(homeFor(appUser.role));
+  }
+  if (appUser.role === "customer_admin" && !appUser.companyId) {
+    throw new Error("customer_admin user has no company");
   }
   return appUser;
 }
