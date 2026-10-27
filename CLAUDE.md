@@ -16,12 +16,14 @@ Create review → Parable staff convert the AI policy into rules → customer CC
 - Policy rules are entered by humans. There is no LLM anywhere in V0.
 
 ## Decisions already made (do not change without asking)
-- Policy rules store the Microsoft `app_id`, not only the app name. Match on `app_id`; name matching is a fallback that produces REVIEW REQUIRED.
-- Two roles: `parable_staff` (converts policy into rules) and `customer` (approves, uploads, resolves).
-- A new evidence upload creates a new review. Finalized reviews and reports are frozen and never edited.
-- A CONDITIONAL app with a permission that is neither allowed nor prohibited is REVIEW REQUIRED.
-- Summary counts count apps, not rows. An app is an exception if any of its rows is.
-- If the optional department column is missing, the unauthorized-user check does not run.
+All product decisions are in `docs/v0-user-journey.md`, Part B. Part B overrides Part A wherever they differ. Do not repeat or reinterpret them here; read Part B before any task.
+
+The ones most likely to matter in code:
+- Roles: `parable_staff` and `customer_admin`. No public signup.
+- Match apps by `app_id` or `service_principal_id` first; name-only matches give REVIEW REQUIRED.
+- Unclassified apps are never assumed to be AI; they give REVIEW REQUIRED. NOT_AI apps are excluded from results.
+- Tenant-wide evidence rows: `user_email` is null and `assignment_scope` is TENANT.
+- New evidence upload = new review. Finalized reviews are frozen.
 
 ## Stack
 Next.js (App Router, TypeScript strict), Tailwind, Supabase (Postgres, Auth, Storage), Drizzle ORM, deployed on Vercel.

@@ -5,7 +5,7 @@ Source: Felix Awah, `Parable_Proof_v2.docx` (32 screenshots), transcribed by rea
 This file has three parts:
 - **Part A** is Felix's spec, transcribed as written. Nothing added.
 - **Part B** is every decision made since: the defaults Felix approved, and the build decisions that resolve ambiguities in Part A.
-- **Part C** lists items still waiting on Felix, and known V0 limitations.
+- **Part C** lists open items and known V0 limitations.
 
 If Part A and Part B disagree, Part B wins.
 
@@ -289,74 +289,86 @@ Do **not** add VERIFIED / UNKNOWN / STALE yet. Those belong to the broader Parab
 
 ---
 
-# Part B: Decisions approved by Felix (October 2026)
+# Part B: Decisions (October 2026)
 
-1. **App matching.** Policy rules also store the Microsoft `app_id`, so "ChatGPT" and "ChatGPT Enterprise" are not confused. Match on `app_id`. Name-only matching is a fallback and produces REVIEW REQUIRED.
-2. **Two roles, one app.** `parable_staff` converts the policy into rules and can see all companies. `customer` (the CCO) approves rules, uploads evidence, resolves findings, and sees only their own company. The customer is notified when draft rules are ready to approve.
-3. **Re-runs.** A new evidence upload starts a new review. A finalized review and its report are frozen and never change.
-4. **Known AI apps (Rule 2).** Parable maintains a starter list of about 50 known AI applications.
-5. **Evidence CSV.** Microsoft does not export these 7 columns directly. `Download Export Instructions` provides a script that builds the CSV from Microsoft Graph.
-6. **Department data (Rule 3).** The CSV gets an optional `user_department` column. If it is empty, the department part of Rule 3 does not run.
-7. **CONDITIONAL apps (Rule 4).** A permission that is neither allowed nor prohibited gives REVIEW REQUIRED.
-8. **Summary counts (Screen 5).** "AI applications reviewed" counts apps, not rows. An app counts as an exception if any of its rows is an exception.
-9. **Data.** US hosting. Uploaded files deleted 90 days after the report. No billing in V0.
+Sources: Felix's replies to the open questions, and build decisions made with Felix's approval to "go with what is safe, works and doesn't break." Where Felix changed an earlier default, his version is used.
 
-Additional decisions (October 2026, made by Arafat with Felix's approval to "go with what is safe, works and doesn't break"):
-
-**Accounts and access**
+## Accounts and access
+- **One sign-in system, two roles:** `parable_staff` and `customer_admin` (the CCO or a delegated admin). No employee login in V0.
 - **Sign-in only.** No public signup. Parable creates every account. `Start Verification` on Screen 0 goes to sign-in.
-- **Several customer logins per company** (e.g. CCO and IT), all with the same customer permissions.
+- **More than one customer_admin per company is allowed** (for example the CCO plus IT), all with the same permissions.
 - **No company name field on Screen 1.** The company comes from the signed-in user's account.
+- Parable staff can see all companies. A customer_admin sees only their own company.
 
-**Policy rules**
-- The rule field is `approved_departments` (a list: one app can be approved for several departments). The evidence column is `user_department` (singular: one user has one department).
-- The example table on Screen 2 is only a display example. The 7-field structure is authoritative.
-- **Customers can add, edit and delete rules** (Add Rules Manually). Parable staff can do the same after converting an uploaded policy. Nothing runs until the CCO clicks Approve Policy Rules.
+## Policy rules (Screen 2)
+- Each rule stores `app_name`, the Microsoft `app_id`, and the Microsoft service principal / object ID (`service_principal_id`) when available.
+- The rule field is `approved_departments` (a list). The evidence column is `user_department` (singular: one user has one department).
+- The example table on Screen 2 is a display example. The 7-field structure is authoritative.
+- **Parable staff structure the uploaded policy into rules. The customer_admin reviews, edits, adds, deletes and approves them.** Nothing runs until the CCO clicks Approve Policy Rules.
 - **Policy rules belong to the company**, not to one review. Each finding stores a frozen copy of the rule as it was at check time.
 - **Update Policy** (Screen 6) opens the exact rule that produced the finding. An edited rule needs CCO approval again. The current review and its findings do not change. The new rule applies to the next review. The user should then Mark Resolved with a note explaining the policy change.
-- **Known AI app list** (Rule 2) is maintained by Parable staff only, one shared list for all customers.
 
-**App matching**
-- Staff enter the Microsoft `app_id` on each rule, copied from the evidence CSV.
-- The engine matches evidence to rules by `app_id` first. A different `app_id` is a different app, even if the name is similar.
-- If a rule has no `app_id`, the engine matches by exact name (ignoring capitalization) and the result is REVIEW REQUIRED, never a confident verdict.
+## Evidence (Screen 3)
+- **The customer uploads the Microsoft export as Microsoft provides it.** Parable converts it into the evidence schema. A nontechnical CCO should not have to run scripts.
+- **In V0, the conversion is done by Parable staff**, the same way staff structure the policy. Staff upload the converted file, and the system validates it. Automated converters for specific Microsoft export formats come later, once real customer exports show which formats repeat.
+- The original raw upload is stored alongside the converted evidence for traceability.
+- **Tenant-wide assignments:** `user_email` is null, and `assignment_scope` is `TENANT`. User-level assignments have `assignment_scope` = `USER` and a valid `user_email`. Never put text like "firm-wide" in the email field.
+- **Duplicates** are rows with the same `user_email` + `app_id` + `permission_scope` + `consent_type` + `observed_at`. Keep one copy, show "N duplicate rows ignored" in the import message, and list them in the error file. Duplicates do not block the upload.
+- **Every new evidence upload creates a new review (version).** Previous reviews are immutable.
 
-**Evidence validation**
-- **Duplicates** are rows in the uploaded CSV with the same `user_email` + `app_id` + `permission_scope` + `consent_type` + `observed_at`. Keep one copy, show "N duplicate rows ignored" in the import message, and list them in the error file. Duplicates do not block the upload.
-- **Tenant-wide rows:** when `consent_type` is Tenant (admin consent), `user_email` may be blank or `firm-wide`. Otherwise it must be a valid email. (Pending Felix, default yes.)
+## App classification (Rule 2)
+- Parable maintains an **app catalog** (staff only, shared across all customers). Each app is classified `AI` or `NOT_AI`.
+- **An unfamiliar app is never assumed to be AI.** An app that is not in the policy and not in the catalog is `UNCLASSIFIED`. It gives REVIEW REQUIRED, and Parable staff classify it.
+- **Build decision:** staff classify unfamiliar apps during the evidence conversion step, so customers rarely see unclassified apps. UNCLASSIFIED → REVIEW REQUIRED remains as the safety net.
+- **Non-AI apps** stay in the imported evidence for traceability but are excluded entirely from results, findings and counts.
 
-**Engine**
-- **Non-AI apps** that are neither in the policy nor on the known AI list are excluded from results and counts. (Pending Felix, default yes.)
-- **Rule 3:** if `approved_users` lists emails, users outside the list give POLICY EXCEPTION even without department data. Only the department comparison is skipped when `user_department` is empty. (Pending Felix, default yes.)
+## Engine (Screen 4)
+- Match evidence to rules by `app_id` (or `service_principal_id`) first. A different ID is a different app, even if the name is similar. If a rule has no ID, match by exact name (ignoring capitalization) and the result is REVIEW REQUIRED, never a confident verdict.
+- **Rule 3:** if `user_department` is missing, skip only the department check. Still enforce any explicit `approved_users` email list.
 - **Decision path per evidence row:**
 
-| Policy status | Check, in order | Result |
+| Situation | Check, in order | Result |
 |---|---|---|
-| PROHIBITED | none | POLICY EXCEPTION |
-| APPROVED | user outside approved users/departments | POLICY EXCEPTION |
+| Rule says PROHIBITED | none | POLICY EXCEPTION |
+| Rule says APPROVED | user outside approved users / departments | POLICY EXCEPTION |
 | | permission on prohibited list | POLICY EXCEPTION |
 | | otherwise | COMPLIANT |
-| CONDITIONAL | user outside approved users/departments | POLICY EXCEPTION |
+| Rule says CONDITIONAL | user outside approved users / departments | POLICY EXCEPTION |
 | | permission on prohibited list | POLICY EXCEPTION |
 | | permission on allowed list | COMPLIANT |
 | | permission on neither list | REVIEW REQUIRED |
-| No rule, known AI app | none | REVIEW REQUIRED |
-| No rule, not an AI app | none | excluded |
+| No rule, catalog says AI | none | REVIEW REQUIRED |
+| No rule, not in catalog (UNCLASSIFIED) | none | REVIEW REQUIRED |
+| No rule, catalog says NOT_AI | none | excluded |
 
-**Findings and reports**
-- **Mark Resolved:** the signed-in user types `resolved_by`. The system also records which account clicked, automatically. The typed name is for display; the recorded account is the proof.
-- **Notes** (Add Note) are stored in their own table, `finding_notes`, append-only and never edited or deleted. This is a seventh table beyond the six listed.
+Tenant-wide rows (`assignment_scope` = TENANT) skip the user and department checks, since there is no single user.
+
+## Results (Screen 5)
+- The summary counts unique applications. If any row for an app is an exception, the app counts as an exception in the summary. The detailed table still shows every affected user and permission.
+
+## Findings and reports (Screens 6 and 7)
+- **Mark Resolved:** the signed-in user types `resolved_by`. The system also records which account clicked. The typed name is for display; the recorded account is the proof.
+- **Notes** (Add Note) are stored in their own table, `finding_notes`, append-only.
 - **Report findings section** lists POLICY EXCEPTION findings only. REVIEW REQUIRED and COMPLIANT appear in the summary counts.
-- **Review statuses:** `DRAFT` → `RULES_PENDING_APPROVAL` → `RULES_APPROVED` → `EVIDENCE_VALIDATED` → `RESULTS_READY` → `FINALIZED`.
+
+## Review statuses
+`DRAFT` → `RULES_PENDING_APPROVAL` → `RULES_APPROVED` → `EVIDENCE_SUBMITTED` (raw export uploaded, waiting for Parable conversion) → `EVIDENCE_VALIDATED` → `RESULTS_READY` → `FINALIZED`
+
+## Data
+- US hosting. No billing in V0.
+- **Raw uploaded files** (the policy document and the original Microsoft export) are deleted 90 days after the report.
+- **Reviews, converted evidence records, findings, notes and reports are retained** unless the customer deletes the review. Converted evidence records are kept because findings point to them as proof.
+- Deletion is a deliberate action by a customer_admin for a whole review. Nothing is deleted by cascade or by accident.
+
+## Database tables
+The six objects from Part A, plus three: `finding_notes` (Add Note), `app_catalog` (AI / NOT_AI classification), and policy and evidence file details stored on `reviews`.
 
 ---
 
 # Part C: Open items
 
-Waiting on Felix (built with the default above until he says otherwise):
-1. Tenant-wide rows may have `firm-wide` or blank instead of an email.
-2. Non-AI apps are excluded from results and counts.
-3. Rule 3 still checks the approved-users email list when department data is missing.
+No decisions are waiting on Felix.
 
-Known limitation in V0 (not a bug):
+Known V0 limitations (not bugs):
 - To see a policy change take effect, the customer creates a new review and uploads the evidence again. A later version can add "Re-run with updated policy" that reuses the same evidence.
+- Evidence conversion is a manual Parable staff step for every review until automated converters are built.
