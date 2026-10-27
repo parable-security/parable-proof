@@ -7,6 +7,8 @@ export default defineConfig({
   schema: "./src/lib/db/schema.ts",
   out: "./drizzle",
   dialect: "postgresql",
+  // Only manage our own tables; auth.users belongs to Supabase.
+  schemaFilter: ["public"],
   dbCredentials: {
     url: process.env.MIGRATION_DATABASE_URL!,
   },
