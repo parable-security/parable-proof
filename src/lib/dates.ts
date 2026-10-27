@@ -40,6 +40,15 @@ export function formatReviewDate(isoDate: string): string {
   return `${MONTHS[month - 1]} ${day}, ${year}`;
 }
 
+// A stored instant in the business timezone, e.g. "Oct 26, 2026, 2:30 PM EDT".
+export function formatTimestamp(instant: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TIME_ZONE,
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(instant);
+}
+
 // "2026-10-26" -> "October 2026 AI Policy Check"
 export function defaultReviewName(isoDate: string): string {
   const { year, month } = parseIsoDate(isoDate);

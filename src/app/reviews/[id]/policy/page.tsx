@@ -1,9 +1,14 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 
 import { requireRole } from "@/lib/auth/require-user";
 import { listActiveRules } from "@/lib/data/policy-rules";
+import { getReviewFiles } from "@/lib/data/reviews";
 
 import { reviewStatusLabel } from "../../status-label";
+import { downloadUrlAction, finalizeUploadAction, startUploadAction } from "../file-actions";
+import { FileDownloadButton } from "../file-download-button";
+import { FileUpload } from "../file-upload";
 import { getReviewOr404 } from "../load-review";
 import { approveRulesAction, deleteRuleAction } from "./actions";
 import { ApproveRulesButton } from "./approve-button";
@@ -29,9 +34,14 @@ export default async function ReviewPolicyPage({
   const { id } = await params;
   const review = await getReviewOr404(user.companyId, id);
   const rules = await listActiveRules(user.companyId);
+  const files = await getReviewFiles(user.companyId, review.id);
+  if (!files) {
+    notFound();
+  }
 
   const editable = review.status !== "FINALIZED";
   const pendingCount = rules.filter((rule) => rule.approvedAt === null).length;
+  const rulesApproved = review.status !== "DRAFT" && review.status !== "RULES_PENDING_APPROVAL";
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-12">
@@ -45,6 +55,32 @@ export default async function ReviewPolicyPage({
           Status: {reviewStatusLabel[review.status]}
         </p>
       </div>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Upload Existing Policy</h2>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Upload your approved AI-use policy (PDF or Word). Parable staff convert it into the
+          rules below for you to review.
+        </p>
+        {files.policyDocument ? (
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span>
+              Current file: <span className="font-medium">{files.policyDocument.fileName}</span>
+            </span>
+            <FileDownloadButton action={downloadUrlAction.bind(null, review.id, "policy_document")} />
+          </div>
+        ) : (
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">No policy document uploaded yet.</p>
+        )}
+        {editable ? (
+          <FileUpload
+            kind="policy_document"
+            start={startUploadAction.bind(null, review.id, "policy_document")}
+            finalize={finalizeUploadAction.bind(null, review.id, "policy_document")}
+            submitLabel={files.policyDocument ? "Replace Policy" : "Upload Policy"}
+          />
+        ) : null}
+      </section>
 
       <h2 className="text-lg font-semibold">Review Your Policy Rules</h2>
 
@@ -113,6 +149,14 @@ export default async function ReviewPolicyPage({
             action={approveRulesAction.bind(null, review.id)}
             pendingCount={pendingCount}
           />
+          {rulesApproved ? (
+            <Link
+              href={`/reviews/${review.id}/evidence`}
+              className="self-start text-sm font-medium underline-offset-2 hover:underline"
+            >
+              Continue to Step 2: Add Microsoft Evidence →
+            </Link>
+          ) : null}
         </div>
       ) : (
         <p className="text-sm text-zinc-600 dark:text-zinc-400">

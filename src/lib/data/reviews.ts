@@ -1,10 +1,11 @@
 import "server-only";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/lib/db";
 import { reviews } from "@/lib/db/schema";
+import { canUploadFile, type FileKind } from "@/lib/validation/review-file";
 
 // Every function takes companyId first and filters by it.
 // Pages and actions get companyId from requireRole(), never from user input.
@@ -71,6 +72,126 @@ export async function getReview(
     .where(and(eq(reviews.id, reviewId), eq(reviews.companyId, companyId)))
     .limit(1);
   return row ?? null;
+}
+
+export type StoredFile = { fileName: string; storagePath: string; uploadedAt: Date | null };
+
+export type ReviewFiles = {
+  id: string;
+  status: ReviewStatus;
+  policyDocument: StoredFile | null;
+  rawExport: (StoredFile & { sha256: string | null }) | null;
+};
+
+// The review's uploaded files. A file is null when none was uploaded or the
+// raw files have been deleted (90-day retention).
+export async function getReviewFiles(
+  companyId: string,
+  reviewId: string,
+): Promise<ReviewFiles | null> {
+  assertCompanyId(companyId);
+  if (!reviewIdSchema.safeParse(reviewId).success) {
+    return null;
+  }
+  const [row] = await db
+    .select({
+      id: reviews.id,
+      status: reviews.status,
+      policyDocumentFileName: reviews.policyDocumentFileName,
+      policyDocumentStoragePath: reviews.policyDocumentStoragePath,
+      policyDocumentUploadedAt: reviews.policyDocumentUploadedAt,
+      rawExportFileName: reviews.rawExportFileName,
+      rawExportStoragePath: reviews.rawExportStoragePath,
+      rawExportSha256: reviews.rawExportSha256,
+      rawExportUploadedAt: reviews.rawExportUploadedAt,
+      rawFilesDeletedAt: reviews.rawFilesDeletedAt,
+    })
+    .from(reviews)
+    .where(and(eq(reviews.id, reviewId), eq(reviews.companyId, companyId)))
+    .limit(1);
+  if (!row) return null;
+
+  const deleted = row.rawFilesDeletedAt !== null;
+  return {
+    id: row.id,
+    status: row.status,
+    policyDocument:
+      !deleted && row.policyDocumentFileName && row.policyDocumentStoragePath
+        ? {
+            fileName: row.policyDocumentFileName,
+            storagePath: row.policyDocumentStoragePath,
+            uploadedAt: row.policyDocumentUploadedAt,
+          }
+        : null,
+    rawExport:
+      !deleted && row.rawExportFileName && row.rawExportStoragePath
+        ? {
+            fileName: row.rawExportFileName,
+            storagePath: row.rawExportStoragePath,
+            uploadedAt: row.rawExportUploadedAt,
+            sha256: row.rawExportSha256,
+          }
+        : null,
+  };
+}
+
+export type SetReviewFileResult =
+  | { ok: true; previousPath: string | null }
+  | { ok: false; error: "NOT_FOUND" | "WRONG_STATUS" };
+
+// Records an uploaded file on the review. The status check and the update run
+// under a row lock, so a concurrent approval or upload can't slip in between.
+// A raw export moves the review to EVIDENCE_SUBMITTED.
+export async function setReviewFile(
+  companyId: string,
+  reviewId: string,
+  userId: string,
+  kind: FileKind,
+  file: { fileName: string; storagePath: string; sha256: string },
+): Promise<SetReviewFileResult> {
+  assertCompanyId(companyId);
+  if (!reviewIdSchema.safeParse(reviewId).success) {
+    return { ok: false, error: "NOT_FOUND" };
+  }
+  const ofCompany = and(eq(reviews.id, reviewId), eq(reviews.companyId, companyId));
+  return db.transaction(async (tx): Promise<SetReviewFileResult> => {
+    const [review] = await tx
+      .select({
+        status: reviews.status,
+        policyDocumentStoragePath: reviews.policyDocumentStoragePath,
+        rawExportStoragePath: reviews.rawExportStoragePath,
+      })
+      .from(reviews)
+      .where(ofCompany)
+      .for("update");
+    if (!review) return { ok: false, error: "NOT_FOUND" };
+    if (!canUploadFile(kind, review.status)) return { ok: false, error: "WRONG_STATUS" };
+
+    if (kind === "policy_document") {
+      await tx
+        .update(reviews)
+        .set({
+          policyDocumentFileName: file.fileName,
+          policyDocumentStoragePath: file.storagePath,
+          policyDocumentUploadedAt: sql`now()`,
+        })
+        .where(ofCompany);
+      return { ok: true, previousPath: review.policyDocumentStoragePath };
+    }
+
+    await tx
+      .update(reviews)
+      .set({
+        rawExportFileName: file.fileName,
+        rawExportStoragePath: file.storagePath,
+        rawExportSha256: file.sha256,
+        rawExportUploadedAt: sql`now()`,
+        rawExportUploadedByUserId: userId,
+        status: "EVIDENCE_SUBMITTED",
+      })
+      .where(ofCompany);
+    return { ok: true, previousPath: review.rawExportStoragePath };
+  });
 }
 
 export async function createReview(

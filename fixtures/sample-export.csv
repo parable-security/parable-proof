@@ -1,0 +1,3 @@
+user_email,app_name,app_id,permission_scope,consent_type,resource_name,observed_at
+sarah@meridianwpdemo.com,Otter AI,a1b2c3d4-0000-4000-8000-000000000001,Files.Read,User,Microsoft Graph,2026-10-18
+,Microsoft Copilot,a1b2c3d4-0000-4000-8000-000000000002,Mail.Read,Tenant,Microsoft Graph,2026-10-19
