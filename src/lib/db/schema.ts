@@ -4,6 +4,7 @@
 // the app reads and writes server-side, scoped to the current company in code.
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   date,
   index,
@@ -189,6 +190,10 @@ export const policyRules = pgTable(
     appId: text("app_id"),
     servicePrincipalId: text("service_principal_id"),
     approvalStatus: approvalStatus("approval_status").notNull(),
+    // "ALL" is a flag, never a string in a list.
+    approvedForAll: boolean("approved_for_all").notNull().default(false),
+    allPermissionsAllowed: boolean("all_permissions_allowed").notNull().default(false),
+    allPermissionsProhibited: boolean("all_permissions_prohibited").notNull().default(false),
     approvedUsers: text("approved_users").array().notNull().default(emptyTextArray),
     approvedDepartments: text("approved_departments")
       .array()
@@ -228,6 +233,47 @@ export const policyRules = pgTable(
     check(
       "policy_rules_cco_approval_check",
       sql`(${t.approvedByUserId} is null) = (${t.approvedAt} is null)`,
+    ),
+    // APPROVED / CONDITIONAL rules must say who is approved.
+    check(
+      "policy_rules_population_required_check",
+      sql`${t.approvalStatus} = 'PROHIBITED'
+        or ${t.approvedForAll}
+        or cardinality(${t.approvedUsers}) > 0
+        or cardinality(${t.approvedDepartments}) > 0`,
+    ),
+    check(
+      "policy_rules_approved_for_all_check",
+      sql`not ${t.approvedForAll}
+        or (cardinality(${t.approvedUsers}) = 0 and cardinality(${t.approvedDepartments}) = 0)`,
+    ),
+    check(
+      "policy_rules_all_allowed_check",
+      sql`not ${t.allPermissionsAllowed} or cardinality(${t.allowedPermissions}) = 0`,
+    ),
+    check(
+      "policy_rules_all_prohibited_check",
+      sql`not ${t.allPermissionsProhibited} or cardinality(${t.prohibitedPermissions}) = 0`,
+    ),
+    check(
+      "policy_rules_all_flags_check",
+      sql`not (${t.allPermissionsAllowed} and ${t.allPermissionsProhibited})`,
+    ),
+    // PROHIBITED rules: no population, all permissions prohibited (spec's Otter AI example).
+    check(
+      "policy_rules_prohibited_shape_check",
+      sql`${t.approvalStatus} <> 'PROHIBITED'
+        or (${t.allPermissionsProhibited}
+          and not ${t.allPermissionsAllowed}
+          and not ${t.approvedForAll}
+          and cardinality(${t.approvedUsers}) = 0
+          and cardinality(${t.approvedDepartments}) = 0
+          and cardinality(${t.allowedPermissions}) = 0
+          and cardinality(${t.prohibitedPermissions}) = 0)`,
+    ),
+    check(
+      "policy_rules_all_prohibited_no_allowed_check",
+      sql`not ${t.allPermissionsProhibited} or cardinality(${t.allowedPermissions}) = 0`,
     ),
   ],
 ).enableRLS();
