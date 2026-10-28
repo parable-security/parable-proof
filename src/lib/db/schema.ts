@@ -156,6 +156,10 @@ export const reviews = pgTable(
 
     rawFilesDeletedAt: timestamp("raw_files_deleted_at", { withTimezone: true }),
     finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+    // The account that clicked Generate Compliance Report.
+    finalizedByUserId: uuid("finalized_by_user_id").references(() => users.id, {
+      onDelete: "restrict",
+    }),
     reportStoragePath: text("report_storage_path"),
     reportSha256: text("report_sha256"),
     createdAt: createdAt(),
@@ -166,6 +170,7 @@ export const reviews = pgTable(
     index("reviews_created_by_user_id_idx").on(t.createdByUserId),
     index("reviews_raw_export_uploaded_by_user_id_idx").on(t.rawExportUploadedByUserId),
     index("reviews_evidence_converted_by_user_id_idx").on(t.evidenceConvertedByUserId),
+    index("reviews_finalized_by_user_id_idx").on(t.finalizedByUserId),
     check(
       "reviews_sha256_format",
       sql`(${t.rawExportSha256} is null or ${t.rawExportSha256} ~ '^[0-9a-f]{64}$')
@@ -175,6 +180,10 @@ export const reviews = pgTable(
     check(
       "reviews_finalized_check",
       sql`(${t.status} = 'FINALIZED') = (${t.finalizedAt} is not null)`,
+    ),
+    check(
+      "reviews_finalized_by_check",
+      sql`(${t.status} = 'FINALIZED') = (${t.finalizedByUserId} is not null)`,
     ),
   ],
 ).enableRLS();

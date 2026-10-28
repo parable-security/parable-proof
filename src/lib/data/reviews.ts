@@ -19,7 +19,7 @@ export type ReviewListItem = {
   status: ReviewStatus;
 };
 
-export type Review = ReviewListItem & { reviewer: string };
+export type Review = ReviewListItem & { reviewer: string; finalizedAt: Date | null };
 
 export type NewReviewInput = {
   reviewName: string;
@@ -67,6 +67,7 @@ export async function getReview(
       reviewer: reviews.reviewer,
       reviewDate: reviews.reviewDate,
       status: reviews.status,
+      finalizedAt: reviews.finalizedAt,
     })
     .from(reviews)
     .where(and(eq(reviews.id, reviewId), eq(reviews.companyId, companyId)))
@@ -88,11 +89,13 @@ export type ReviewFiles = {
         duplicateCount: number | null;
       })
     | null;
+  // Generated at finalize; never uploaded or replaced.
+  report: (StoredFile & { sha256: string | null }) | null;
 };
 
-// The review's uploaded files. A file is null when none was uploaded. The raw
+// The review's stored files. A file is null when none was uploaded. The raw
 // files (policy document, raw export) are also null once deleted (90-day
-// retention); converted evidence is retained.
+// retention); converted evidence and the report are retained.
 export async function getReviewFiles(
   companyId: string,
   reviewId: string,
@@ -119,6 +122,10 @@ export async function getReviewFiles(
       evidenceUploadedAt: reviews.evidenceUploadedAt,
       evidenceRowCount: reviews.evidenceRowCount,
       evidenceDuplicateCount: reviews.evidenceDuplicateCount,
+      reviewDate: reviews.reviewDate,
+      finalizedAt: reviews.finalizedAt,
+      reportStoragePath: reviews.reportStoragePath,
+      reportSha256: reviews.reportSha256,
     })
     .from(reviews)
     .where(and(eq(reviews.id, reviewId), eq(reviews.companyId, companyId)))
@@ -157,6 +164,14 @@ export async function getReviewFiles(
             duplicateCount: row.evidenceDuplicateCount,
           }
         : null,
+    report: row.reportStoragePath
+      ? {
+          fileName: `parable-proof-report-${row.reviewDate}.pdf`,
+          storagePath: row.reportStoragePath,
+          uploadedAt: row.finalizedAt,
+          sha256: row.reportSha256,
+        }
+      : null,
   };
 }
 

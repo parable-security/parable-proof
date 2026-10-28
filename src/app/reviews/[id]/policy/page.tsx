@@ -5,6 +5,12 @@ import { FileDownloadButton } from "@/app/_components/file-download-button";
 import { requireRole } from "@/lib/auth/require-user";
 import { listActiveRules } from "@/lib/data/policy-rules";
 import { getReviewFiles } from "@/lib/data/reviews";
+import {
+  approvalStatusLabel,
+  describeAllowed,
+  describePopulation,
+  describeProhibited,
+} from "@/lib/rule-display";
 
 import { reviewStatusLabel } from "../../status-label";
 import { downloadUrlAction, finalizeUploadAction, startUploadAction } from "../file-actions";
@@ -13,12 +19,6 @@ import { getReviewOr404 } from "../load-review";
 import { approveRulesAction, deleteRuleAction } from "./actions";
 import { ApproveRulesButton } from "./approve-button";
 import { DeleteRuleButton } from "./delete-rule-button";
-import {
-  approvalStatusLabel,
-  describeAllowed,
-  describePopulation,
-  describeProhibited,
-} from "./rule-display";
 
 // Allowed to block: the existence check must run before any streaming starts,
 // so a missing or other-company review gets a real HTTP 404, not a streamed 200.

@@ -1,35 +1,6 @@
 import type { PolicyRule } from "@/lib/data/policy-rules";
 
-export const approvalStatusLabel: Record<PolicyRule["approvalStatus"], string> = {
-  APPROVED: "Approved",
-  CONDITIONAL: "Conditional",
-  PROHIBITED: "Prohibited",
-};
-
-function listOrNone(items: string[]): string {
-  return items.length > 0 ? items.join(", ") : "None";
-}
-
-// The describe* helpers also take a finding's policy rule snapshot (same fields).
-export function describePopulation(
-  rule: Pick<PolicyRule, "approvalStatus" | "approvedForAll" | "approvedDepartments" | "approvedUsers">,
-): string {
-  if (rule.approvalStatus === "PROHIBITED") return "None";
-  if (rule.approvedForAll) return "All";
-  return [...rule.approvedDepartments, ...rule.approvedUsers].join(", ") || "None";
-}
-
-export function describeAllowed(
-  rule: Pick<PolicyRule, "allPermissionsAllowed" | "allowedPermissions">,
-): string {
-  return rule.allPermissionsAllowed ? "All" : listOrNone(rule.allowedPermissions);
-}
-
-export function describeProhibited(
-  rule: Pick<PolicyRule, "allPermissionsProhibited" | "prohibitedPermissions">,
-): string {
-  return rule.allPermissionsProhibited ? "All" : listOrNone(rule.prohibitedPermissions);
-}
+// Display labels live in src/lib/rule-display.ts (shared with the report).
 
 // Initial form values for editing an existing rule.
 export function ruleToFormFields(rule: PolicyRule) {

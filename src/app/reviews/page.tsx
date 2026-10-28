@@ -6,7 +6,7 @@ import { requireRole } from "@/lib/auth/require-user";
 import { listReviews } from "@/lib/data/reviews";
 import { formatReviewDate } from "@/lib/dates";
 
-import { reviewStatusLabel } from "./status-label";
+import { reviewNextStep, reviewStatusLabel } from "./status-label";
 
 export default function ReviewsPage() {
   return (
@@ -46,21 +46,35 @@ async function ReviewsContent() {
               <tr>
                 <th className="py-2 pr-4 font-medium">Name</th>
                 <th className="py-2 pr-4 font-medium">Date</th>
-                <th className="py-2 font-medium">Status</th>
+                <th className="py-2 pr-4 font-medium">Status</th>
+                <th className="py-2 font-medium">
+                  <span className="sr-only">Next step</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {items.map((review) => (
-                <tr key={review.id} className="border-b border-zinc-100 dark:border-zinc-900">
-                  <td className="py-2 pr-4">
-                    <Link href={`/reviews/${review.id}/policy`} className="font-medium underline-offset-2 hover:underline">
-                      {review.reviewName}
-                    </Link>
-                  </td>
-                  <td className="py-2 pr-4 whitespace-nowrap">{formatReviewDate(review.reviewDate)}</td>
-                  <td className="py-2">{reviewStatusLabel[review.status]}</td>
-                </tr>
-              ))}
+              {items.map((review) => {
+                const step = reviewNextStep(review.id, review.status);
+                return (
+                  <tr key={review.id} className="border-b border-zinc-100 dark:border-zinc-900">
+                    <td className="py-2 pr-4">
+                      <Link href={step.href} className="font-medium underline-offset-2 hover:underline">
+                        {review.reviewName}
+                      </Link>
+                    </td>
+                    <td className="py-2 pr-4 whitespace-nowrap">{formatReviewDate(review.reviewDate)}</td>
+                    <td className="py-2 pr-4">{reviewStatusLabel[review.status]}</td>
+                    <td className="py-2 text-right">
+                      <Link
+                        href={step.href}
+                        className="inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium whitespace-nowrap dark:border-zinc-700"
+                      >
+                        {step.label}
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

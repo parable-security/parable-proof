@@ -6,7 +6,13 @@ export type DownloadUrlResult = { ok: true; url: string } | { ok: false; error: 
 
 // Asks the server for a 60-second signed link, then follows it. The link is
 // created on click, so a stale page never holds a usable URL.
-export function FileDownloadButton({ action }: { action: () => Promise<DownloadUrlResult> }) {
+export function FileDownloadButton({
+  action,
+  label = "Download",
+}: {
+  action: () => Promise<DownloadUrlResult>;
+  label?: string;
+}) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -34,7 +40,7 @@ export function FileDownloadButton({ action }: { action: () => Promise<DownloadU
         disabled={pending}
         className="text-sm underline-offset-2 hover:underline disabled:opacity-60"
       >
-        {pending ? "Preparing…" : "Download"}
+        {pending ? "Preparing…" : label}
       </button>
       {error ? (
         <span role="alert" className="text-sm text-red-600 dark:text-red-400">

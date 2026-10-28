@@ -60,6 +60,14 @@ export function filterFindings<T extends { result: FindingResult }>(
   return findings.filter((finding) => finding.result === result);
 }
 
+// Findings that could still be resolved: OPEN, and not COMPLIANT. Shown
+// before finalizing, which is allowed while some are open.
+export function countOpenFindings(
+  findings: { result: FindingResult; resolutionStatus: "OPEN" | "RESOLVED" }[],
+): number {
+  return findings.filter((f) => f.resolutionStatus === "OPEN" && f.result !== "COMPLIANT").length;
+}
+
 const snapshotSchema = z.object({
   approvalStatus: z.enum(["APPROVED", "CONDITIONAL", "PROHIBITED"]),
 });

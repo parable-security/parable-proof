@@ -3,7 +3,10 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 
 import { importEvidence } from "@/lib/data/evidence";
+import { finalizeReview, type FinalizeReviewResult } from "@/lib/data/report";
 import { getReviewFiles, setReviewFile, type ReviewFiles } from "@/lib/data/reviews";
+import { buildReportModel } from "@/lib/report/model";
+import { renderReportPdf } from "@/lib/report/render-pdf";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   parseEvidenceCsv,
@@ -54,6 +57,8 @@ function storedFile(review: ReviewFiles, kind: FileKind) {
       return review.rawExport;
     case "converted_evidence":
       return review.convertedEvidence;
+    case "report":
+      return review.report;
   }
 }
 
@@ -270,6 +275,52 @@ async function validateAndImport(
     duplicateCount: parsed.duplicateCount,
     duplicates: parsed.duplicates,
   };
+}
+
+const PDF_MAGIC = "%PDF-";
+
+// Screen 7: freeze the review and store its compliance report, generated once
+// and never regenerated. The PDF is rendered and uploaded inside
+// finalizeReview's locked transaction; the review is updated only after the
+// upload succeeds. If anything fails after the upload was attempted, the
+// object is deleted, so a failed finalize leaves no report and no change.
+export async function finalizeReviewReport(
+  companyId: string,
+  reviewId: string,
+  finalizer: { userId: string; fullName: string },
+): Promise<FinalizeReviewResult> {
+  // The object id is also the report id printed in the PDF.
+  const reportId = randomUUID();
+  const path = buildStoragePath(companyId, reviewId, "report", reportId, "pdf");
+  let uploadAttempted = false;
+
+  let result: FinalizeReviewResult;
+  try {
+    result = await finalizeReview(companyId, reviewId, finalizer.userId, async (data) => {
+      const model = buildReportModel({ ...data, reportId, finalizedByName: finalizer.fullName });
+      const bytes = await renderReportPdf(model);
+      if (new TextDecoder().decode(bytes.subarray(0, PDF_MAGIC.length)) !== PDF_MAGIC) {
+        throw new Error("Rendered report is not a PDF");
+      }
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+
+      uploadAttempted = true;
+      const { error } = await bucket().upload(path, bytes, {
+        contentType: "application/pdf",
+        upsert: false,
+      });
+      if (error) {
+        console.error(`review-files: could not upload ${path}: ${error.message}`);
+        return { ok: false, error: "UPLOAD_FAILED" };
+      }
+      return { ok: true, storagePath: path, sha256 };
+    });
+  } catch (error) {
+    if (uploadAttempted) await removeObject(path);
+    throw error;
+  }
+  if (!result.ok && uploadAttempted) await removeObject(path);
+  return result;
 }
 
 // A short-lived download link. The path comes from the review row, never the browser.

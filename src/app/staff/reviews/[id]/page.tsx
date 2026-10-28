@@ -36,8 +36,8 @@ export default async function StaffReviewPage({ params }: { params: Promise<{ id
     notFound();
   }
 
-  const { policyDocument, rawExport, convertedEvidence } = files;
-  const download = (kind: "policy_document" | "raw_export" | "converted_evidence") =>
+  const { policyDocument, rawExport, convertedEvidence, report } = files;
+  const download = (kind: "policy_document" | "raw_export" | "converted_evidence" | "report") =>
     staffDownloadUrlAction.bind(null, review.id, kind);
 
   const blockedMessage =
@@ -105,6 +105,20 @@ export default async function StaffReviewPage({ params }: { params: Promise<{ id
           finalize={finalizeConvertedUploadAction.bind(null, review.id, rawExport?.sha256 ?? "")}
           blockedMessage={blockedMessage}
         />
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-lg font-semibold">Compliance Report</h2>
+        <FileRow label="Report PDF" missing="Not finalized yet.">
+          {report ? (
+            <>
+              <span className="font-medium">{report.fileName}</span>
+              <UploadedAt at={report.uploadedAt} />
+              <FileDownloadButton action={download("report")} />
+              {report.sha256 ? <Sha256 value={report.sha256} /> : null}
+            </>
+          ) : null}
+        </FileRow>
       </section>
     </main>
   );

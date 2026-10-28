@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { FindingResult } from "../engine/evaluate";
 
 import {
+  countOpenFindings,
   filterFindings,
   matchedByLabel,
   parseFindingParam,
@@ -138,6 +139,24 @@ describe("policyLabel", () => {
       expect(() => policyLabel(snapshot)).toThrow("Malformed policy rule snapshot");
     },
   );
+});
+
+describe("countOpenFindings", () => {
+  it("counts open exceptions and review-required findings, not compliant or resolved", () => {
+    expect(
+      countOpenFindings([
+        { result: "POLICY_EXCEPTION", resolutionStatus: "OPEN" },
+        { result: "REVIEW_REQUIRED", resolutionStatus: "OPEN" },
+        { result: "POLICY_EXCEPTION", resolutionStatus: "RESOLVED" },
+        { result: "REVIEW_REQUIRED", resolutionStatus: "RESOLVED" },
+        { result: "COMPLIANT", resolutionStatus: "OPEN" },
+      ]),
+    ).toBe(2);
+  });
+
+  it("is zero for no findings", () => {
+    expect(countOpenFindings([])).toBe(0);
+  });
 });
 
 describe("parsePolicyRuleSnapshot", () => {

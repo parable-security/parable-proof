@@ -3,8 +3,10 @@
 import { refresh } from "next/cache";
 import { notFound } from "next/navigation";
 
+import type { DownloadUrlResult } from "@/app/_components/file-download-button";
 import { requireRole } from "@/lib/auth/require-user";
 import { addFindingNote, resolveFinding } from "@/lib/data/findings";
+import { createDownloadUrl, finalizeReviewReport } from "@/lib/storage/review-files";
 import {
   type FindingNoteFieldErrors,
   parseFindingNoteForm,
@@ -63,6 +65,41 @@ export async function resolveFindingAction(
   }
   refresh();
   return undefined;
+}
+
+export type FinalizeState = { error: string } | undefined;
+
+// Screen 7: Generate Compliance Report. Freezes the review; can't be undone.
+// Used with useActionState; the previous state isn't needed.
+export async function finalizeReviewAction(reviewId: string): Promise<FinalizeState> {
+  const user = await requireRole("customer_admin");
+
+  const result = await finalizeReviewReport(user.companyId, reviewId, {
+    userId: user.userId,
+    fullName: user.fullName,
+  });
+  if (!result.ok) {
+    if (result.error === "NOT_FOUND") notFound();
+    if (result.error === "FINALIZED") return { error: "This review is already finalized." };
+    if (result.error === "WRONG_STATUS") {
+      return { error: "Run the AI policy check before generating the report." };
+    }
+    return { error: "Could not save the report. Nothing was changed. Try again." };
+  }
+  refresh();
+  return undefined;
+}
+
+// The stored report, through the same 60-second signed link as other files.
+export async function reportDownloadUrlAction(reviewId: string): Promise<DownloadUrlResult> {
+  const user = await requireRole("customer_admin");
+
+  const result = await createDownloadUrl(user.companyId, reviewId, "report");
+  if (!result.ok) {
+    if (result.error === "NOT_FOUND") notFound();
+    return { ok: false, error: result.message };
+  }
+  return result;
 }
 
 export async function addFindingNoteAction(

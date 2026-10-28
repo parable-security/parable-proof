@@ -3,6 +3,12 @@ import Link from "next/link";
 import type { FindingDetail } from "@/lib/data/findings";
 import { formatInstantDate, formatTimestamp } from "@/lib/dates";
 import {
+  approvalStatusLabel,
+  describeAllowed,
+  describePopulation,
+  describeProhibited,
+} from "@/lib/rule-display";
+import {
   matchedByLabel,
   parsePolicyRuleSnapshot,
   resultLabel,
@@ -11,12 +17,6 @@ import {
   userLabel,
 } from "@/lib/validation/results-filter";
 
-import {
-  approvalStatusLabel,
-  describeAllowed,
-  describePopulation,
-  describeProhibited,
-} from "../policy/rule-display";
 import { addFindingNoteAction, resolveFindingAction } from "./actions";
 import { AddNoteForm } from "./add-note-form";
 import { ResolveFindingForm } from "./resolve-finding-form";

@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { ReactNode } from "react";
 
+import { FileDownloadButton } from "@/app/_components/file-download-button";
 import { requireRole } from "@/lib/auth/require-user";
 import { getFindingDetail, listFindings } from "@/lib/data/findings";
-import { formatReviewDate } from "@/lib/dates";
+import { formatReviewDate, formatTimestamp } from "@/lib/dates";
 import { summarizeFindings } from "@/lib/engine/evaluate";
 import {
+  countOpenFindings,
   filterFindings,
   parseFindingParam,
   parseResultsFilter,
@@ -18,6 +21,8 @@ import {
 } from "@/lib/validation/results-filter";
 
 import { getReviewOr404 } from "../load-review";
+import { finalizeReviewAction, reportDownloadUrlAction } from "./actions";
+import { FinalizeReviewButton } from "./finalize-review-button";
 import { FindingDrawer } from "./finding-drawer";
 
 // Allowed to block: the existence check must run before any streaming starts,
@@ -47,7 +52,8 @@ export default async function ReviewResultsPage({
     notFound();
   }
 
-  const header = (
+  // `actions` is the top-right area (Screen 7's report button or download).
+  const header = (actions?: ReactNode) => (
     <>
       <Link
         href={`/reviews/${review.id}/evidence`}
@@ -55,12 +61,15 @@ export default async function ReviewResultsPage({
       >
         ← Step 2: Add Microsoft Evidence
       </Link>
-      <div className="flex flex-col gap-1">
-        <p className="text-sm text-zinc-500">{review.reviewName}</p>
-        <h1 className="text-2xl font-semibold tracking-tight">AI Policy Check</h1>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          {formatReviewDate(review.reviewDate)}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <p className="text-sm text-zinc-500">{review.reviewName}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">AI Policy Check</h1>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            {formatReviewDate(review.reviewDate)}
+          </p>
+        </div>
+        {actions}
       </div>
     </>
   );
@@ -71,7 +80,7 @@ export default async function ReviewResultsPage({
     }
     return (
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-12">
-        {header}
+        {header()}
         <p className="text-zinc-600 dark:text-zinc-400">
           The AI policy check hasn&apos;t been run for this review yet.
         </p>
@@ -91,9 +100,29 @@ export default async function ReviewResultsPage({
   const summary = summarizeFindings(findings);
   const shown = filterFindings(findings, filter);
 
+  const reportActions =
+    review.status === "RESULTS_READY" ? (
+      <FinalizeReviewButton
+        action={finalizeReviewAction.bind(null, review.id)}
+        openCount={countOpenFindings(findings)}
+      />
+    ) : (
+      <div className="flex flex-col items-start gap-1 text-sm sm:items-end">
+        {review.finalizedAt ? (
+          <span className="text-zinc-600 dark:text-zinc-400">
+            Finalized {formatTimestamp(review.finalizedAt)}
+          </span>
+        ) : null}
+        <FileDownloadButton
+          label="Download PDF"
+          action={reportDownloadUrlAction.bind(null, review.id)}
+        />
+      </div>
+    );
+
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-12">
-      {header}
+      {header(reportActions)}
 
       <p className="text-zinc-700 dark:text-zinc-300">
         {plural(summary.applications, "AI application", "AI applications")} reviewed.{" "}
