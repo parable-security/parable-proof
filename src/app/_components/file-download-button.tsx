@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 
-import type { DownloadUrlResult } from "./file-actions";
+export type DownloadUrlResult = { ok: true; url: string } | { ok: false; error: string };
 
 // Asks the server for a 60-second signed link, then follows it. The link is
 // created on click, so a stale page never holds a usable URL.

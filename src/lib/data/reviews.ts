@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { db } from "@/lib/db";
 import { reviews } from "@/lib/db/schema";
-import { canUploadFile, type FileKind } from "@/lib/validation/review-file";
+import { canUploadFile, type CustomerFileKind } from "@/lib/validation/review-file";
 
 // Every function takes companyId first and filters by it.
 // Pages and actions get companyId from requireRole(), never from user input.
@@ -81,10 +81,18 @@ export type ReviewFiles = {
   status: ReviewStatus;
   policyDocument: StoredFile | null;
   rawExport: (StoredFile & { sha256: string | null }) | null;
+  convertedEvidence:
+    | (StoredFile & {
+        sha256: string | null;
+        rowCount: number | null;
+        duplicateCount: number | null;
+      })
+    | null;
 };
 
-// The review's uploaded files. A file is null when none was uploaded or the
-// raw files have been deleted (90-day retention).
+// The review's uploaded files. A file is null when none was uploaded. The raw
+// files (policy document, raw export) are also null once deleted (90-day
+// retention); converted evidence is retained.
 export async function getReviewFiles(
   companyId: string,
   reviewId: string,
@@ -105,6 +113,12 @@ export async function getReviewFiles(
       rawExportSha256: reviews.rawExportSha256,
       rawExportUploadedAt: reviews.rawExportUploadedAt,
       rawFilesDeletedAt: reviews.rawFilesDeletedAt,
+      evidenceFileName: reviews.evidenceFileName,
+      evidenceStoragePath: reviews.evidenceStoragePath,
+      evidenceSha256: reviews.evidenceSha256,
+      evidenceUploadedAt: reviews.evidenceUploadedAt,
+      evidenceRowCount: reviews.evidenceRowCount,
+      evidenceDuplicateCount: reviews.evidenceDuplicateCount,
     })
     .from(reviews)
     .where(and(eq(reviews.id, reviewId), eq(reviews.companyId, companyId)))
@@ -132,6 +146,17 @@ export async function getReviewFiles(
             sha256: row.rawExportSha256,
           }
         : null,
+    convertedEvidence:
+      row.evidenceFileName && row.evidenceStoragePath
+        ? {
+            fileName: row.evidenceFileName,
+            storagePath: row.evidenceStoragePath,
+            uploadedAt: row.evidenceUploadedAt,
+            sha256: row.evidenceSha256,
+            rowCount: row.evidenceRowCount,
+            duplicateCount: row.evidenceDuplicateCount,
+          }
+        : null,
   };
 }
 
@@ -141,12 +166,13 @@ export type SetReviewFileResult =
 
 // Records an uploaded file on the review. The status check and the update run
 // under a row lock, so a concurrent approval or upload can't slip in between.
-// A raw export moves the review to EVIDENCE_SUBMITTED.
+// A raw export moves the review to EVIDENCE_SUBMITTED. Converted evidence is
+// recorded by importEvidence (src/lib/data/evidence.ts) instead.
 export async function setReviewFile(
   companyId: string,
   reviewId: string,
   userId: string,
-  kind: FileKind,
+  kind: CustomerFileKind,
   file: { fileName: string; storagePath: string; sha256: string },
 ): Promise<SetReviewFileResult> {
   assertCompanyId(companyId);

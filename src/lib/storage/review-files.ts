@@ -2,8 +2,14 @@ import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
 
+import { importEvidence } from "@/lib/data/evidence";
 import { getReviewFiles, setReviewFile, type ReviewFiles } from "@/lib/data/reviews";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  parseEvidenceCsv,
+  type DuplicateRow,
+  type EvidenceCsvError,
+} from "@/lib/validation/evidence-csv";
 import {
   buildStoragePath,
   checkFileContent,
@@ -13,6 +19,7 @@ import {
   REVIEW_FILE_BUCKET,
   storagePathExtension,
   uploadBlockedMessage,
+  type CustomerFileKind,
   type FileKind,
 } from "@/lib/validation/review-file";
 
@@ -21,6 +28,9 @@ import {
 // storage. Paths are built here only; a path from the browser is re-checked.
 
 const DOWNLOAD_URL_SECONDS = 60;
+
+const RAW_EXPORT_CHANGED_MESSAGE =
+  "The customer replaced the Microsoft export. Download it again and re-convert.";
 
 export type StorageFailure =
   | { ok: false; error: "NOT_FOUND" }
@@ -37,7 +47,30 @@ function bucket() {
 }
 
 function storedFile(review: ReviewFiles, kind: FileKind) {
-  return kind === "policy_document" ? review.policyDocument : review.rawExport;
+  switch (kind) {
+    case "policy_document":
+      return review.policyDocument;
+    case "raw_export":
+      return review.rawExport;
+    case "converted_evidence":
+      return review.convertedEvidence;
+  }
+}
+
+// Downloads a freshly uploaded object and checks its real size and content.
+async function readUploadedFile(
+  kind: FileKind,
+  path: string,
+  ext: string,
+): Promise<{ ok: true; bytes: Uint8Array; sha256: string } | StorageFailure> {
+  const { data: blob, error } = await bucket().download(path);
+  if (error || !blob) {
+    return rejected("The upload did not complete. Try again.");
+  }
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const content = checkFileContent(kind, ext, bytes);
+  if (!content.ok) return rejected(content.error);
+  return { ok: true, bytes, sha256: createHash("sha256").update(bytes).digest("hex") };
 }
 
 // Best effort: a failed delete leaves an unreferenced private object.
@@ -79,7 +112,7 @@ export async function finalizeUpload(
   companyId: string,
   reviewId: string,
   userId: string,
-  kind: FileKind,
+  kind: CustomerFileKind,
   path: string,
   fileName: string,
 ): Promise<{ ok: true } | StorageFailure> {
@@ -119,7 +152,7 @@ async function verifyAndRecord(
   companyId: string,
   review: ReviewFiles,
   userId: string,
-  kind: FileKind,
+  kind: CustomerFileKind,
   path: string,
   fileName: string,
 ): Promise<{ ok: true; previousPath: string | null } | StorageFailure> {
@@ -131,19 +164,13 @@ async function verifyAndRecord(
   const blocked = uploadBlockedMessage(kind, review.status);
   if (blocked) return rejected(blocked);
 
-  const { data: blob, error } = await bucket().download(path);
-  if (error || !blob) {
-    return rejected("The upload did not complete. Try again.");
-  }
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  const content = checkFileContent(kind, name.ext, bytes);
-  if (!content.ok) return rejected(content.error);
+  const file = await readUploadedFile(kind, path, name.ext);
+  if (!file.ok) return file;
 
-  const sha256 = createHash("sha256").update(bytes).digest("hex");
   const saved = await setReviewFile(companyId, review.id, userId, kind, {
     fileName: name.fileName,
     storagePath: path,
-    sha256,
+    sha256: file.sha256,
   });
   if (!saved.ok) {
     return saved.error === "NOT_FOUND"
@@ -151,6 +178,98 @@ async function verifyAndRecord(
       : rejected("This review's status changed. Reload the page and try again.");
   }
   return { ok: true, previousPath: saved.previousPath };
+}
+
+export type ConvertedEvidenceResult =
+  | { ok: true; rowCount: number; duplicateCount: number; duplicates: DuplicateRow[] }
+  | { ok: false; error: "INVALID_EVIDENCE"; errors: EvidenceCsvError[] }
+  | StorageFailure;
+
+// Staff step 3: verify the converted evidence CSV, validate it, and import it.
+// expectedRawExportSha256 is the raw export staff converted; if the customer
+// has replaced it since, nothing is imported. On any failure after the path
+// check, the uploaded object is deleted; an invalid file writes nothing.
+export async function finalizeConvertedEvidence(
+  companyId: string,
+  reviewId: string,
+  userId: string,
+  path: string,
+  fileName: string,
+  expectedRawExportSha256: string,
+): Promise<ConvertedEvidenceResult> {
+  const review = await getReviewFiles(companyId, reviewId);
+  if (!review) return NOT_FOUND;
+
+  // Untrusted path: nothing is read or deleted unless it is one we could have issued.
+  if (!isExpectedStoragePath(path, companyId, review.id, "converted_evidence")) {
+    return rejected("The upload could not be verified. Try again.");
+  }
+  if (review.convertedEvidence?.storagePath === path) {
+    return rejected("This file is already saved.");
+  }
+
+  let result: ConvertedEvidenceResult;
+  try {
+    result = await validateAndImport(
+      companyId,
+      review,
+      userId,
+      path,
+      fileName,
+      expectedRawExportSha256,
+    );
+  } catch (error) {
+    await removeObject(path);
+    throw error;
+  }
+  if (!result.ok) await removeObject(path);
+  return result;
+}
+
+async function validateAndImport(
+  companyId: string,
+  review: ReviewFiles,
+  userId: string,
+  path: string,
+  fileName: string,
+  expectedRawExportSha256: string,
+): Promise<ConvertedEvidenceResult> {
+  const name = parseFileName(fileName);
+  if (!name.ok) return rejected(name.error);
+  if (name.ext !== storagePathExtension(path)) {
+    return rejected("The file name does not match the uploaded file.");
+  }
+  const blocked = uploadBlockedMessage("converted_evidence", review.status);
+  if (blocked) return rejected(blocked);
+  if (review.rawExport?.sha256 !== expectedRawExportSha256) {
+    return rejected(RAW_EXPORT_CHANGED_MESSAGE);
+  }
+
+  const file = await readUploadedFile("converted_evidence", path, name.ext);
+  if (!file.ok) return file;
+
+  const parsed = parseEvidenceCsv(file.bytes);
+  if (!parsed.ok) return { ok: false, error: "INVALID_EVIDENCE", errors: parsed.errors };
+
+  const imported = await importEvidence(
+    companyId,
+    review.id,
+    userId,
+    { fileName: name.fileName, storagePath: path, sha256: file.sha256 },
+    expectedRawExportSha256,
+    parsed,
+  );
+  if (!imported.ok) {
+    if (imported.error === "NOT_FOUND") return NOT_FOUND;
+    if (imported.error === "RAW_EXPORT_CHANGED") return rejected(RAW_EXPORT_CHANGED_MESSAGE);
+    return rejected("This review's status changed. Reload the page.");
+  }
+  return {
+    ok: true,
+    rowCount: parsed.rowCount,
+    duplicateCount: parsed.duplicateCount,
+    duplicates: parsed.duplicates,
+  };
 }
 
 // A short-lived download link. The path comes from the review row, never the browser.

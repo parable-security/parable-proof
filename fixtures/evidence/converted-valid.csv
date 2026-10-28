@@ -1,0 +1,9 @@
+user_email,app_name,app_id,permission_scope,consent_type,resource_name,observed_at,user_department,service_principal_id
+sarah@example.com,Otter AI,a1b2c3d4-0000-4000-8000-000000000001,Files.Read,User,Microsoft Graph,2026-10-18T14:30:00Z,Finance,
+james@example.com,ChatGPT Enterprise,a1b2c3d4-0000-4000-8000-000000000003,Files.Read,User,Microsoft Graph,2026-10-18T15:00:00Z,Marketing,
+priya@example.com,ChatGPT Enterprise,a1b2c3d4-0000-4000-8000-000000000003,Mail.Read,Principal,Microsoft Graph,2026-10-18T15:05:00Z,Research,
+,Microsoft Copilot,a1b2c3d4-0000-4000-8000-000000000002,Mail.Read,Tenant,Microsoft Graph,2026-10-19,,
+,Microsoft Copilot,a1b2c3d4-0000-4000-8000-000000000002,Sites.Read.All,AllPrincipals,Microsoft Graph,2026-10-19,,
+dana@example.com,"Notes, Summaries & More",a1b2c3d4-0000-4000-8000-000000000004,User.Read,User,Microsoft Graph,2026-10-20T09:00:00-04:00,Operations,
+Sarah@Example.com,Otter AI,a1b2c3d4-0000-4000-8000-000000000001,Files.Read,User,Microsoft Graph,2026-10-18T14:30:00Z,Finance,
+,Microsoft Copilot,a1b2c3d4-0000-4000-8000-000000000002,Mail.Read,Tenant,Microsoft Graph,2026-10-19T00:00:00Z,,

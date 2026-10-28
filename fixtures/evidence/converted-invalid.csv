@@ -1,0 +1,6 @@
+user_email,app_name,app_id,permission_scope,consent_type,resource_name,observed_at,user_department
+sarah@example.com,Otter AI,a1b2c3d4-0000-4000-8000-000000000001,Files.Read,User,Microsoft Graph,2026-10-18T14:30:00Z,Finance
+firm-wide,Microsoft Copilot,a1b2c3d4-0000-4000-8000-000000000002,Mail.Read,Tenant,Microsoft Graph,2026-10-19,
+,ChatGPT Enterprise,a1b2c3d4-0000-4000-8000-000000000003,Files.Read,User,Microsoft Graph,2026-10-18,Marketing
+"=HYPERLINK(""http://example.com"")",Otter AI,a1b2c3d4-0000-4000-8000-000000000001,Files.Read,User,Microsoft Graph,2026-10-18,Finance
+james@example.com,,a1b2c3d4-0000-4000-8000-000000000003,Files.Read,Admin,Microsoft Graph,10/18/2026,Marketing

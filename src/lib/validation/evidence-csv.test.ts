@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -520,5 +523,34 @@ describe("buildErrorCsv", () => {
   it("neutralizes values that came from an uploaded file", () => {
     const result = parseEvidenceCsv(csv(line({ user_email: "=1+1" })));
     expect(buildErrorCsv({ errors: expectErrors(result) })).toContain(",'=1+1\r\n");
+  });
+});
+
+// The manual-test fixtures must keep producing what the test steps expect.
+describe("fixtures/evidence", () => {
+  const fixture = (name: string) =>
+    new Uint8Array(readFileSync(resolve(process.cwd(), "fixtures/evidence", name)));
+
+  it("converted-valid.csv imports 6 records and ignores 2 duplicates", () => {
+    const result = expectOk(parseEvidenceCsv(fixture("converted-valid.csv")));
+    expect(result.rowCount).toBe(6);
+    expect(result.duplicates).toEqual([
+      { rowNumber: 8, duplicateOfRowNumber: 2 },
+      { rowNumber: 9, duplicateOfRowNumber: 5 },
+    ]);
+    expect(result.records.find((r) => r.rowNumber === 7)?.appName).toBe("Notes, Summaries & More");
+  });
+
+  it("converted-invalid.csv reports one error per problem", () => {
+    const errors = expectErrors(parseEvidenceCsv(fixture("converted-invalid.csv")));
+    expect(errors.map((e) => [e.rowNumber, e.column])).toEqual([
+      [3, "user_email"],
+      [4, "user_email"],
+      [5, "user_email"],
+      [6, "app_name"],
+      [6, "consent_type"],
+      [6, "observed_at"],
+    ]);
+    expect(buildErrorCsv({ errors })).toContain(`'=HYPERLINK(""http://example.com"")`);
   });
 });

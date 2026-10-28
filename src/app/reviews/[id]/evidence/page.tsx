@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { FileDownloadButton } from "@/app/_components/file-download-button";
 import { requireRole } from "@/lib/auth/require-user";
 import { getReviewFiles } from "@/lib/data/reviews";
 import { formatTimestamp } from "@/lib/dates";
-import { uploadBlockedMessage } from "@/lib/validation/review-file";
+import { isEvidenceValidated, uploadBlockedMessage } from "@/lib/validation/review-file";
 
 import { reviewStatusLabel } from "../../status-label";
 import { downloadUrlAction, finalizeUploadAction, startUploadAction } from "../file-actions";
-import { FileDownloadButton } from "../file-download-button";
 import { FileUpload } from "../file-upload";
 import { getReviewOr404 } from "../load-review";
 
@@ -32,6 +32,11 @@ export default async function ReviewEvidencePage({
 
   const rawExport = files.rawExport;
   const blocked = uploadBlockedMessage("raw_export", review.status);
+  // Once staff have imported the converted evidence, the raw export is frozen.
+  const imported =
+    isEvidenceValidated(review.status) && files.convertedEvidence
+      ? files.convertedEvidence.rowCount ?? 0
+      : null;
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-12">
@@ -90,7 +95,17 @@ export default async function ReviewEvidencePage({
           <p className="text-sm text-zinc-600 dark:text-zinc-400">No evidence uploaded yet.</p>
         )}
 
-        {blocked ? (
+        {imported !== null ? (
+          <div className="flex flex-col gap-1 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm dark:border-green-900 dark:bg-green-950">
+            <span className="font-medium text-green-800 dark:text-green-300">
+              {imported.toLocaleString("en-US")}{" "}
+              {imported === 1 ? "application-access record" : "application-access records"} imported.
+            </span>
+            <span className="text-green-800 dark:text-green-300">
+              Your evidence is ready for the policy check.
+            </span>
+          </div>
+        ) : blocked ? (
           <p className="text-sm text-zinc-600 dark:text-zinc-400">{blocked}</p>
         ) : (
           <FileUpload

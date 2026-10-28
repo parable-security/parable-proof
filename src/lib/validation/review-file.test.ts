@@ -4,7 +4,9 @@ import {
   buildStoragePath,
   canUploadFile,
   checkFileContent,
+  customerFileKindSchema,
   FILE_KINDS,
+  isEvidenceValidated,
   isExpectedStoragePath,
   MAX_REVIEW_FILE_BYTES,
   parseFileName,
@@ -263,6 +265,15 @@ describe("canUploadFile", () => {
       RESULTS_READY: false,
       FINALIZED: false,
     },
+    converted_evidence: {
+      DRAFT: false,
+      RULES_PENDING_APPROVAL: false,
+      RULES_APPROVED: false,
+      EVIDENCE_SUBMITTED: true,
+      EVIDENCE_VALIDATED: false,
+      RESULTS_READY: false,
+      FINALIZED: false,
+    },
   };
 
   for (const kind of FILE_KINDS) {
@@ -282,5 +293,74 @@ describe("canUploadFile", () => {
     expect(uploadBlockedMessage("policy_document", "FINALIZED")).toBe(
       "This review is finalized. Its files can't be changed.",
     );
+    expect(uploadBlockedMessage("converted_evidence", "RULES_APPROVED")).toBe(
+      "Waiting for the customer's Microsoft export.",
+    );
+    expect(uploadBlockedMessage("converted_evidence", "EVIDENCE_VALIDATED")).toBe(
+      "Evidence for this review has already been validated.",
+    );
+    expect(uploadBlockedMessage("converted_evidence", "FINALIZED")).toBe(
+      "This review is finalized. Its files can't be changed.",
+    );
+  });
+});
+
+describe("isEvidenceValidated", () => {
+  it.each(STATUSES)("%s", (status) => {
+    expect(isEvidenceValidated(status)).toBe(
+      status === "EVIDENCE_VALIDATED" || status === "RESULTS_READY" || status === "FINALIZED",
+    );
+  });
+});
+
+describe("converted_evidence", () => {
+  const path = buildStoragePath(COMPANY, REVIEW, "converted_evidence", OBJECT, "csv");
+
+  it("uses {companyId}/{reviewId}/converted_evidence/{uuid}.csv", () => {
+    expect(path).toBe(`${COMPANY}/${REVIEW}/converted_evidence/${OBJECT}.csv`);
+    expect(isExpectedStoragePath(path, COMPANY, REVIEW, "converted_evidence")).toBe(true);
+  });
+
+  it("does not accept a path of another kind, or its own path as another kind", () => {
+    const rawExport = buildStoragePath(COMPANY, REVIEW, "raw_export", OBJECT, "csv");
+    expect(isExpectedStoragePath(rawExport, COMPANY, REVIEW, "converted_evidence")).toBe(false);
+    expect(isExpectedStoragePath(path, COMPANY, REVIEW, "raw_export")).toBe(false);
+  });
+
+  it.each([
+    ["a PDF", `${COMPANY}/${REVIEW}/converted_evidence/${OBJECT}.pdf`],
+    ["an uppercase extension", `${COMPANY}/${REVIEW}/converted_evidence/${OBJECT}.CSV`],
+    ["another company", `${OTHER}/${REVIEW}/converted_evidence/${OBJECT}.csv`],
+    ["another review", `${COMPANY}/${OTHER}/converted_evidence/${OBJECT}.csv`],
+    ["an extra segment", `${COMPANY}/${REVIEW}/converted_evidence/x/${OBJECT}.csv`],
+  ])("rejects %s", (_label, candidate) => {
+    expect(isExpectedStoragePath(candidate, COMPANY, REVIEW, "converted_evidence")).toBe(false);
+  });
+
+  it("accepts only CSV uploads", () => {
+    expect(
+      parseStartUpload({ kind: "converted_evidence", fileName: "evidence.csv", size: 10 }),
+    ).toMatchObject({ ok: true, data: { contentType: "text/csv" } });
+    for (const fileName of ["evidence.xlsx", "evidence.pdf"]) {
+      expect(parseStartUpload({ kind: "converted_evidence", fileName, size: 10 })).toEqual({
+        ok: false,
+        error: "Upload a CSV file.",
+      });
+    }
+  });
+
+  it("applies the CSV content checks", () => {
+    expect(checkFileContent("converted_evidence", "csv", text("user_email\n"))).toEqual({ ok: true });
+    expect(checkFileContent("converted_evidence", "csv", bytes(0xff, 0xfe)).ok).toBe(false);
+  });
+});
+
+describe("customerFileKindSchema", () => {
+  it.each(["policy_document", "raw_export"])("accepts %s", (kind) => {
+    expect(customerFileKindSchema.safeParse(kind).success).toBe(true);
+  });
+
+  it.each(["converted_evidence", "evidence", ""])("rejects %j", (kind) => {
+    expect(customerFileKindSchema.safeParse(kind).success).toBe(false);
   });
 });

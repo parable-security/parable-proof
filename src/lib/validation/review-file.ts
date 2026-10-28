@@ -1,15 +1,22 @@
-// Rules for files customers upload to a review (policy document, raw Microsoft
-// export). Pure: no database, no Next.js, no storage. The storage module
-// applies these on the server; the browser repeats some checks for UX only.
+// Rules for files uploaded to a review: the customer's policy document and raw
+// Microsoft export, and the evidence CSV converted by Parable staff. Pure: no
+// database, no Next.js, no storage. The storage module applies these on the
+// server; the browser repeats some checks for UX only.
 import { z } from "zod";
 
 export const REVIEW_FILE_BUCKET = "review-files";
 export const MAX_REVIEW_FILE_BYTES = 10 * 1024 * 1024;
 
-export const FILE_KINDS = ["policy_document", "raw_export"] as const;
+export const FILE_KINDS = ["policy_document", "raw_export", "converted_evidence"] as const;
 export type FileKind = (typeof FILE_KINDS)[number];
 
 export const fileKindSchema = z.enum(FILE_KINDS);
+
+// The kinds a customer_admin may upload or download. converted_evidence is staff-only.
+export const CUSTOMER_FILE_KINDS = ["policy_document", "raw_export"] as const;
+export type CustomerFileKind = (typeof CUSTOMER_FILE_KINDS)[number];
+
+export const customerFileKindSchema = z.enum(CUSTOMER_FILE_KINDS);
 
 // Same values as the review_status enum; declared here so this module stays pure.
 export type ReviewFileStatus =
@@ -31,16 +38,21 @@ export const KIND_EXTENSIONS: Record<FileKind, Readonly<Record<string, string>>>
   raw_export: {
     csv: "text/csv",
   },
+  converted_evidence: {
+    csv: "text/csv",
+  },
 };
 
 export const KIND_ACCEPT: Record<FileKind, string> = {
   policy_document: ".pdf,.docx",
   raw_export: ".csv",
+  converted_evidence: ".csv",
 };
 
 const WRONG_TYPE_MESSAGE: Record<FileKind, string> = {
   policy_document: "Upload a PDF or Word (.docx) file.",
   raw_export: "Upload a CSV file.",
+  converted_evidence: "Upload a CSV file.",
 };
 
 const TOO_LARGE_MESSAGE = "File is larger than 10 MB.";
@@ -123,6 +135,7 @@ const OBJECT_ID = "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const OBJECT_NAME: Record<FileKind, RegExp> = {
   policy_document: new RegExp(`^${OBJECT_ID}\\.(?:pdf|docx)$`),
   raw_export: new RegExp(`^${OBJECT_ID}\\.csv$`),
+  converted_evidence: new RegExp(`^${OBJECT_ID}\\.csv$`),
 };
 
 // A path sent back by the browser is untrusted. It must be exactly a path
@@ -177,15 +190,31 @@ export function checkFileContent(kind: FileKind, ext: string, bytes: Uint8Array)
 
 const RAW_EXPORT_STATUSES: readonly ReviewFileStatus[] = ["RULES_APPROVED", "EVIDENCE_SUBMITTED"];
 
+const VALIDATED_OR_LATER: readonly ReviewFileStatus[] = [
+  "EVIDENCE_VALIDATED",
+  "RESULTS_READY",
+  "FINALIZED",
+];
+
+export function isEvidenceValidated(status: ReviewFileStatus): boolean {
+  return VALIDATED_OR_LATER.includes(status);
+}
+
 export function canUploadFile(kind: FileKind, status: ReviewFileStatus): boolean {
   if (kind === "policy_document") return status !== "FINALIZED";
-  return RAW_EXPORT_STATUSES.includes(status);
+  if (kind === "raw_export") return RAW_EXPORT_STATUSES.includes(status);
+  return status === "EVIDENCE_SUBMITTED";
 }
 
 // Why an upload is not allowed, or null when it is.
 export function uploadBlockedMessage(kind: FileKind, status: ReviewFileStatus): string | null {
   if (canUploadFile(kind, status)) return null;
   if (status === "FINALIZED") return "This review is finalized. Its files can't be changed.";
+  if (kind === "converted_evidence") {
+    return isEvidenceValidated(status)
+      ? "Evidence for this review has already been validated."
+      : "Waiting for the customer's Microsoft export.";
+  }
   if (status === "DRAFT" || status === "RULES_PENDING_APPROVAL") {
     return "Approve your policy rules before adding evidence.";
   }

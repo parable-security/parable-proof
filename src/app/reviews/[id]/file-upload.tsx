@@ -2,13 +2,8 @@
 
 import { useRef, useState, useTransition, type SubmitEvent } from "react";
 
-import { createBrowserStorageClient } from "@/lib/supabase/browser";
-import {
-  KIND_ACCEPT,
-  parseStartUpload,
-  REVIEW_FILE_BUCKET,
-  type FileKind,
-} from "@/lib/validation/review-file";
+import { uploadWithSignedUrl } from "@/lib/supabase/signed-upload";
+import { KIND_ACCEPT, parseStartUpload, type FileKind } from "@/lib/validation/review-file";
 
 import type { FileActionResult, StartUploadResult } from "./file-actions";
 
@@ -50,21 +45,12 @@ export function FileUpload({
 
     startTransition(async () => {
       try {
-        const started = await start({ fileName: file.name, size: file.size });
-        if (!started.ok) {
-          setError(started.error);
+        const uploaded = await uploadWithSignedUrl(file, start);
+        if (!uploaded.ok) {
+          setError(uploaded.error);
           return;
         }
-        const { error: uploadError } = await createBrowserStorageClient()
-          .storage.from(REVIEW_FILE_BUCKET)
-          .uploadToSignedUrl(started.path, started.token, file, {
-            contentType: started.contentType,
-          });
-        if (uploadError) {
-          setError("The upload failed. Try again.");
-          return;
-        }
-        const finalized = await finalize({ path: started.path, fileName: file.name });
+        const finalized = await finalize({ path: uploaded.path, fileName: file.name });
         if (!finalized.ok) {
           setError(finalized.error);
           return;

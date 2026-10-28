@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { FileDownloadButton } from "@/app/_components/file-download-button";
 import { requireRole } from "@/lib/auth/require-user";
 import { listActiveRules } from "@/lib/data/policy-rules";
 import { getReviewFiles } from "@/lib/data/reviews";
 
 import { reviewStatusLabel } from "../../status-label";
 import { downloadUrlAction, finalizeUploadAction, startUploadAction } from "../file-actions";
-import { FileDownloadButton } from "../file-download-button";
 import { FileUpload } from "../file-upload";
 import { getReviewOr404 } from "../load-review";
 import { approveRulesAction, deleteRuleAction } from "./actions";

@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 
+import type { DownloadUrlResult } from "@/app/_components/file-download-button";
 import { requireRole } from "@/lib/auth/require-user";
 import {
   createDownloadUrl,
@@ -11,20 +12,19 @@ import {
   finalizeUpload,
   type StorageFailure,
 } from "@/lib/storage/review-files";
-import { fileKindSchema } from "@/lib/validation/review-file";
+import { customerFileKindSchema } from "@/lib/validation/review-file";
 
 // Uploads go straight from the browser to Supabase Storage:
 // startUploadAction (signed URL) → browser upload → finalizeUploadAction.
 // Every argument comes from the client and is untrusted; companyId and userId
-// come only from requireRole().
+// come only from requireRole(). Only customer file kinds are accepted:
+// converted evidence is uploaded and downloaded by staff only.
 
 export type FileActionResult = { ok: true } | { ok: false; error: string };
 
 export type StartUploadResult =
   | { ok: true; path: string; token: string; contentType: string }
   | { ok: false; error: string };
-
-export type DownloadUrlResult = { ok: true; url: string } | { ok: false; error: string };
 
 const INVALID_REQUEST = { ok: false, error: "Invalid upload request." } as const;
 
@@ -43,7 +43,7 @@ export async function startUploadAction(
   input: { fileName: string; size: number },
 ): Promise<StartUploadResult> {
   const user = await requireRole("customer_admin");
-  const parsedKind = fileKindSchema.safeParse(kind);
+  const parsedKind = customerFileKindSchema.safeParse(kind);
   const parsedInput = startInputSchema.safeParse(input);
   if (!parsedKind.success || !parsedInput.success) return INVALID_REQUEST;
 
@@ -64,7 +64,7 @@ export async function finalizeUploadAction(
   input: { path: string; fileName: string },
 ): Promise<FileActionResult> {
   const user = await requireRole("customer_admin");
-  const parsedKind = fileKindSchema.safeParse(kind);
+  const parsedKind = customerFileKindSchema.safeParse(kind);
   const parsedInput = finalizeInputSchema.safeParse(input);
   if (!parsedKind.success || !parsedInput.success) return INVALID_REQUEST;
 
@@ -83,7 +83,7 @@ export async function finalizeUploadAction(
 
 export async function downloadUrlAction(reviewId: string, kind: string): Promise<DownloadUrlResult> {
   const user = await requireRole("customer_admin");
-  const parsedKind = fileKindSchema.safeParse(kind);
+  const parsedKind = customerFileKindSchema.safeParse(kind);
   if (!parsedKind.success) return { ok: false, error: "Invalid download request." };
 
   const result = await createDownloadUrl(user.companyId, reviewId, parsedKind.data);
