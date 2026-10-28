@@ -10,17 +10,24 @@ function listOrNone(items: string[]): string {
   return items.length > 0 ? items.join(", ") : "None";
 }
 
-export function describePopulation(rule: PolicyRule): string {
+// The describe* helpers also take a finding's policy rule snapshot (same fields).
+export function describePopulation(
+  rule: Pick<PolicyRule, "approvalStatus" | "approvedForAll" | "approvedDepartments" | "approvedUsers">,
+): string {
   if (rule.approvalStatus === "PROHIBITED") return "None";
   if (rule.approvedForAll) return "All";
   return [...rule.approvedDepartments, ...rule.approvedUsers].join(", ") || "None";
 }
 
-export function describeAllowed(rule: PolicyRule): string {
+export function describeAllowed(
+  rule: Pick<PolicyRule, "allPermissionsAllowed" | "allowedPermissions">,
+): string {
   return rule.allPermissionsAllowed ? "All" : listOrNone(rule.allowedPermissions);
 }
 
-export function describeProhibited(rule: PolicyRule): string {
+export function describeProhibited(
+  rule: Pick<PolicyRule, "allPermissionsProhibited" | "prohibitedPermissions">,
+): string {
   return rule.allPermissionsProhibited ? "All" : listOrNone(rule.prohibitedPermissions);
 }
 

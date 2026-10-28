@@ -49,6 +49,14 @@ export function formatTimestamp(instant: Date): string {
   }).format(instant);
 }
 
+// A stored instant as a calendar date in the business timezone, e.g. "October 18, 2026".
+export function formatInstantDate(instant: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TIME_ZONE,
+    dateStyle: "long",
+  }).format(instant);
+}
+
 // "2026-10-26" -> "October 2026 AI Policy Check"
 export function defaultReviewName(isoDate: string): string {
   const { year, month } = parseIsoDate(isoDate);

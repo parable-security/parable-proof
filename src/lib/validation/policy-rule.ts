@@ -123,6 +123,22 @@ function listSizeError(items: string[], label: string): string | null {
   return null;
 }
 
+// The add-rule page's ?appName= and ?appId= (linked from a no-rule finding).
+// They only prefill the form, and the saved rule goes through
+// parsePolicyRuleForm, so a bad value is simply dropped, never reported.
+export function parseRulePrefill(params: {
+  [key: string]: string | string[] | undefined;
+}): RuleFormFields {
+  const prefill: RuleFormFields = {};
+  for (const name of ["appName", "appId"] as const) {
+    const raw = params[name];
+    if (typeof raw !== "string") continue;
+    const value = raw.trim();
+    if (value !== "" && value.length <= 200) prefill[name] = value;
+  }
+  return prefill;
+}
+
 export function parsePolicyRuleForm(fields: RuleFormFields): ParseRuleResult {
   const errors: RuleFieldErrors = {};
   const addError = (key: RuleFieldErrorKey, message: string) => {

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, isNull, notExists, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, notExists, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/lib/db";
@@ -11,8 +11,10 @@ import {
   findings,
   policyRules,
   reviews,
+  users,
 } from "@/lib/db/schema";
 import { evaluateEvidence, type FindingResult } from "@/lib/engine/evaluate";
+import type { ResolveFindingInput } from "@/lib/validation/finding-actions";
 
 // Every function takes companyId first and filters by it.
 // The engine trusts its caller: runPolicyCheck is the gatekeeper.
@@ -21,6 +23,8 @@ import { evaluateEvidence, type FindingResult } from "@/lib/engine/evaluate";
 const INSERT_BATCH_SIZE = 1_000;
 
 const reviewIdSchema = z.uuid();
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 function assertCompanyId(companyId: string) {
   if (!companyId) {
@@ -177,6 +181,7 @@ export type FindingListItem = {
   reason: string;
   // Frozen copy of the rule at check time (null when no rule matched).
   policyRuleSnapshot: unknown;
+  resolutionStatus: "OPEN" | "RESOLVED";
 };
 
 // The review's findings: exceptions first, then review required, then
@@ -200,6 +205,7 @@ export async function listFindings(
       result: findings.result,
       reason: findings.reason,
       policyRuleSnapshot: findings.policyRuleSnapshot,
+      resolutionStatus: findings.resolutionStatus,
     })
     .from(findings)
     .innerJoin(
@@ -216,4 +222,216 @@ export async function listFindings(
       sql`lower(${findings.appName})`,
       evidenceRecords.rowNumber,
     );
+}
+
+export type FindingNote = { id: string; note: string; authorName: string; createdAt: Date };
+
+export type FindingDetail = {
+  id: string;
+  appName: string;
+  result: FindingResult;
+  reason: string;
+  policyRuleId: string | null;
+  // Frozen copy of the rule at check time (null when no rule matched).
+  policyRuleSnapshot: unknown;
+  // none: no rule matched; active: the rule still exists; deleted: soft-deleted since.
+  ruleState: "none" | "active" | "deleted";
+  resolutionStatus: "OPEN" | "RESOLVED";
+  resolutionNote: string | null;
+  resolvedBy: string | null;
+  // Full name of the account that clicked Mark Resolved (the proof).
+  resolvedByAccountName: string | null;
+  resolvedAt: Date | null;
+  evidence: {
+    rowNumber: number;
+    userEmail: string | null;
+    appName: string;
+    appId: string;
+    permissionScope: string;
+    consentType: string;
+    resourceName: string;
+    observedAt: Date;
+  };
+  notes: FindingNote[];
+};
+
+// One finding of this company's review, with its evidence row and notes
+// (oldest first). null when an id is not a UUID, the finding does not exist,
+// or it belongs to another review or company.
+export async function getFindingDetail(
+  companyId: string,
+  reviewId: string,
+  findingId: string,
+): Promise<FindingDetail | null> {
+  assertCompanyId(companyId);
+  if (!reviewIdSchema.safeParse(reviewId).success || !reviewIdSchema.safeParse(findingId).success) {
+    return null;
+  }
+  const [row] = await db
+    .select({
+      id: findings.id,
+      appName: findings.appName,
+      result: findings.result,
+      reason: findings.reason,
+      policyRuleId: findings.policyRuleId,
+      policyRuleSnapshot: findings.policyRuleSnapshot,
+      activeRuleId: policyRules.id,
+      resolutionStatus: findings.resolutionStatus,
+      resolutionNote: findings.resolutionNote,
+      resolvedBy: findings.resolvedBy,
+      resolvedByAccountName: users.fullName,
+      resolvedAt: findings.resolvedAt,
+      evidence: {
+        rowNumber: evidenceRecords.rowNumber,
+        userEmail: evidenceRecords.userEmail,
+        appName: evidenceRecords.appName,
+        appId: evidenceRecords.appId,
+        permissionScope: evidenceRecords.permissionScope,
+        consentType: evidenceRecords.consentType,
+        resourceName: evidenceRecords.resourceName,
+        observedAt: evidenceRecords.observedAt,
+      },
+    })
+    .from(findings)
+    .innerJoin(
+      reviews,
+      and(
+        eq(reviews.id, findings.reviewId),
+        eq(reviews.id, reviewId),
+        eq(reviews.companyId, companyId),
+      ),
+    )
+    .innerJoin(evidenceRecords, eq(evidenceRecords.id, findings.evidenceRecordId))
+    .leftJoin(
+      policyRules,
+      and(
+        eq(policyRules.id, findings.policyRuleId),
+        eq(policyRules.companyId, companyId),
+        isNull(policyRules.deletedAt),
+      ),
+    )
+    .leftJoin(users, eq(users.id, findings.resolvedByUserId))
+    .where(eq(findings.id, findingId))
+    .limit(1);
+  if (!row) return null;
+
+  // The finding was proven to belong to this company above.
+  const notes = await db
+    .select({
+      id: findingNotes.id,
+      note: findingNotes.note,
+      authorName: findingNotes.authorName,
+      createdAt: findingNotes.createdAt,
+    })
+    .from(findingNotes)
+    .where(eq(findingNotes.findingId, row.id))
+    .orderBy(asc(findingNotes.createdAt), asc(findingNotes.id));
+
+  const { activeRuleId, ...finding } = row;
+  return {
+    ...finding,
+    ruleState: finding.policyRuleId === null ? "none" : activeRuleId ? "active" : "deleted",
+    notes,
+  };
+}
+
+export type FindingActionError = "NOT_FOUND" | "FINALIZED" | "WRONG_STATUS";
+
+// Locks this company's review FOR SHARE and requires RESULTS_READY. The lock
+// conflicts with runPolicyCheck's FOR UPDATE, so a re-run cannot delete
+// findings mid-action. Finalizing a review must also lock it FOR UPDATE.
+async function lockReviewForFindingChange(
+  tx: Tx,
+  companyId: string,
+  reviewId: string,
+): Promise<FindingActionError | null> {
+  const [review] = await tx
+    .select({ status: reviews.status })
+    .from(reviews)
+    .where(and(eq(reviews.id, reviewId), eq(reviews.companyId, companyId)))
+    .for("share");
+  if (!review) return "NOT_FOUND";
+  if (review.status === "FINALIZED") return "FINALIZED";
+  if (review.status !== "RESULTS_READY") return "WRONG_STATUS";
+  return null;
+}
+
+export type ResolveFindingResult =
+  | { ok: true }
+  | { ok: false; error: FindingActionError | "NOT_RESOLVABLE" };
+
+// Mark Resolved. Only an OPEN, non-COMPLIANT finding can be resolved, once:
+// there is no undo. resolved_at comes from the database clock.
+export async function resolveFinding(
+  companyId: string,
+  reviewId: string,
+  findingId: string,
+  userId: string,
+  input: ResolveFindingInput,
+): Promise<ResolveFindingResult> {
+  assertCompanyId(companyId);
+  if (!reviewIdSchema.safeParse(reviewId).success || !reviewIdSchema.safeParse(findingId).success) {
+    return { ok: false, error: "NOT_FOUND" };
+  }
+  return db.transaction(async (tx): Promise<ResolveFindingResult> => {
+    const lockError = await lockReviewForFindingChange(tx, companyId, reviewId);
+    if (lockError) return { ok: false, error: lockError };
+
+    // The review was proven to belong to this company above. A concurrent
+    // resolve re-checks resolution_status after it commits and matches nothing.
+    const updated = await tx
+      .update(findings)
+      .set({
+        resolutionStatus: "RESOLVED",
+        resolutionNote: input.resolutionNote,
+        resolvedBy: input.resolvedBy,
+        resolvedByUserId: userId,
+        resolvedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(findings.id, findingId),
+          eq(findings.reviewId, reviewId),
+          eq(findings.resolutionStatus, "OPEN"),
+          ne(findings.result, "COMPLIANT"),
+        ),
+      )
+      .returning({ id: findings.id });
+    if (updated.length === 0) return { ok: false, error: "NOT_RESOLVABLE" };
+    return { ok: true };
+  });
+}
+
+export type AddFindingNoteResult = { ok: true } | { ok: false; error: FindingActionError };
+
+// Add Note: append-only. The author comes from the signed-in account.
+export async function addFindingNote(
+  companyId: string,
+  reviewId: string,
+  findingId: string,
+  author: { userId: string; fullName: string },
+  note: string,
+): Promise<AddFindingNoteResult> {
+  assertCompanyId(companyId);
+  if (!reviewIdSchema.safeParse(reviewId).success || !reviewIdSchema.safeParse(findingId).success) {
+    return { ok: false, error: "NOT_FOUND" };
+  }
+  return db.transaction(async (tx): Promise<AddFindingNoteResult> => {
+    const lockError = await lockReviewForFindingChange(tx, companyId, reviewId);
+    if (lockError) return { ok: false, error: lockError };
+
+    const [finding] = await tx
+      .select({ id: findings.id })
+      .from(findings)
+      .where(and(eq(findings.id, findingId), eq(findings.reviewId, reviewId)));
+    if (!finding) return { ok: false, error: "NOT_FOUND" };
+
+    await tx.insert(findingNotes).values({
+      findingId: finding.id,
+      note,
+      authorUserId: author.userId,
+      authorName: author.fullName,
+    });
+    return { ok: true };
+  });
 }

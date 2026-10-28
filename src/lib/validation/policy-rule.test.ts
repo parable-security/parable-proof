@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseEmailList,
   parsePolicyRuleForm,
+  parseRulePrefill,
   splitList,
   type ParseRuleResult,
   type RuleFormFields,
@@ -202,5 +203,31 @@ describe("parsePolicyRuleForm: fields", () => {
   it("trims notes and stores blank notes as null", () => {
     expect(expectOk(parse({ notes: "  keep  " })).notes).toBe("keep");
     expect(expectOk(parse({ notes: "   " })).notes).toBeNull();
+  });
+});
+
+describe("parseRulePrefill", () => {
+  it("prefills the app name and app ID, trimmed", () => {
+    expect(parseRulePrefill({ appName: " Fireflies ", appId: "app-123" })).toEqual({
+      appName: "Fireflies",
+      appId: "app-123",
+    });
+  });
+
+  it("returns nothing when the parameters are missing", () => {
+    expect(parseRulePrefill({})).toEqual({});
+  });
+
+  it("ignores every other parameter", () => {
+    expect(
+      parseRulePrefill({ appName: "Otter AI", approvalStatus: "APPROVED", approvedForAll: "on" }),
+    ).toEqual({ appName: "Otter AI" });
+  });
+
+  it("drops empty, repeated and over-long values", () => {
+    expect(parseRulePrefill({ appName: "   ", appId: ["a", "b"] })).toEqual({});
+    expect(parseRulePrefill({ appName: "a".repeat(201), appId: "b".repeat(200) })).toEqual({
+      appId: "b".repeat(200),
+    });
   });
 });
