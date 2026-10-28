@@ -11,6 +11,8 @@ import { reviewStatusLabel } from "../../status-label";
 import { downloadUrlAction, finalizeUploadAction, startUploadAction } from "../file-actions";
 import { FileUpload } from "../file-upload";
 import { getReviewOr404 } from "../load-review";
+import { runPolicyCheckAction } from "./actions";
+import { RunCheckButton } from "./run-check-button";
 
 // Allowed to block: the existence check must run before any streaming starts,
 // so a missing or other-company review gets a real HTTP 404, not a streamed 200.
@@ -37,6 +39,8 @@ export default async function ReviewEvidencePage({
     isEvidenceValidated(review.status) && files.convertedEvidence
       ? files.convertedEvidence.rowCount ?? 0
       : null;
+  const canRunCheck = review.status === "EVIDENCE_VALIDATED" || review.status === "RESULTS_READY";
+  const resultsReady = review.status === "RESULTS_READY" || review.status === "FINALIZED";
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-12">
@@ -121,6 +125,26 @@ export default async function ReviewEvidencePage({
           </p>
         ) : null}
       </section>
+
+      {canRunCheck || resultsReady ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-semibold">AI Policy Check</h2>
+          {canRunCheck ? (
+            <RunCheckButton
+              action={runPolicyCheckAction.bind(null, review.id)}
+              rerun={review.status === "RESULTS_READY"}
+            />
+          ) : null}
+          {resultsReady ? (
+            <Link
+              href={`/reviews/${review.id}/results`}
+              className="self-start text-sm font-medium underline-offset-2 hover:underline"
+            >
+              View Results →
+            </Link>
+          ) : null}
+        </section>
+      ) : null}
     </main>
   );
 }
