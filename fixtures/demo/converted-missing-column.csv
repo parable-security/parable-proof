@@ -1,0 +1,2 @@
+user_email,app_name,permission_scope,consent_type,resource_name,observed_at
+sarah@example.com,Otter AI,Files.Read,User,Microsoft Graph,2026-10-29T14:00:00Z
